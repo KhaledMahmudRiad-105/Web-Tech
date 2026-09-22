@@ -7,24 +7,24 @@ import (
 	"strconv"
 )
 
-// Link stores information about one URL
+// Link stores one URL
 type Link struct {
 	ID      int    `json:"id"`
 	LongURL string `json:"long_url"`
 }
 
-// This slice temporarily stores our URLs
+// This slice works as our temporary database
 var links []Link
 
-// This gives every new URL a new ID
+// ID for the next URL
 var nextID = 1
 
-// This function creates a short URL
 func shortenURL(w http.ResponseWriter, r *http.Request) {
 
-	// Read the URL sent by the user
+	// Store the JSON data sent by the user
 	var data Link
 
+	// Read JSON from request
 	err := json.NewDecoder(r.Body).Decode(&data)
 
 	if err != nil {
@@ -32,7 +32,13 @@ func shortenURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Give the URL an ID
+	// Check if URL was provided
+	if data.LongURL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+
+	// Give the URL a unique ID
 	data.ID = nextID
 
 	// Increase ID for the next URL
@@ -41,31 +47,75 @@ func shortenURL(w http.ResponseWriter, r *http.Request) {
 	// Store the URL
 	links = append(links, data)
 
-	// Create the short URL
+	// Create short URL
 	shortURL := "http://localhost:8080/" + strconv.Itoa(data.ID)
 
-	// Send the result back
+	// Prepare response
 	response := map[string]string{
 		"short_url": shortURL,
 		"long_url":  data.LongURL,
 	}
 
+	// Tell browser/client that response is JSON
 	w.Header().Set("Content-Type", "application/json")
 
+	// Send response
 	json.NewEncoder(w).Encode(response)
+}
+
+func redirectURL(w http.ResponseWriter, r *http.Request) {
+
+	// Get ID from URL
+	idText := r.PathValue("id")
+
+	// Convert ID from string to integer
+	id, err := strconv.Atoi(idText)
+
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	// Search for the URL
+	for i := 0; i < len(links); i++ {
+
+		if links[i].ID == id {
+
+			// Redirect to original URL
+			http.Redirect(
+				w,
+				r,
+				links[i].LongURL,
+				http.StatusFound,
+			)
+
+			return
+		}
+	}
+
+	// ID was not found
+	http.Error(w, "URL not found", http.StatusNotFound)
 }
 
 func main() {
 
-	// POST /shorten creates a short URL
+	// Create short URL
 	http.HandleFunc("POST /shorten", shortenURL)
 
+	// Redirect short URL
+	http.HandleFunc("GET /{id}", redirectURL)
+
 	// Home page
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "URL Shortener")
 	})
 
 	fmt.Println("Server running on http://localhost:8080")
 
-	http.ListenAndServe(":8080", nil)
+	// Start server
+	err := http.ListenAndServe(":8080", nil)
+
+	if err != nil {
+		fmt.Println("Server error:", err)
+	}
 }
